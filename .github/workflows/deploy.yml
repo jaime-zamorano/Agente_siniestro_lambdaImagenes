@@ -1,0 +1,42 @@
+name: Deploy Lambda OCR Imágenes
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-2
+  LAMBDA_NAME: Lambda_ocr_imagenes
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Empaquetar Lambda
+        run: zip package.zip lambda_function.py
+
+      - name: Desplegar Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.LAMBDA_NAME }} \
+            --zip-file fileb://package.zip
+
+      - name: Esperar actualización
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ env.LAMBDA_NAME }}
+
+      - name: Verificar despliegue
+        run: |
+          aws lambda get-function --function-name ${{ env.LAMBDA_NAME }} --query 'Configuration.[FunctionName,LastModified,State]' --output table

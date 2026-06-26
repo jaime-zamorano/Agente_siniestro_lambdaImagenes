@@ -1,0 +1,88 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "OCR Imágenes Siniestros",
+    "version": "1.0.0",
+    "description": "API para extraer datos de imágenes de documentos (carnet de identidad) usando visión por IA"
+  },
+  "paths": {
+    "/procesar-carnet": {
+      "post": {
+        "summary": "Extrae datos de un carnet de identidad chileno desde una imagen en S3",
+        "description": "Lee la imagen del carnet desde S3 usando el session_id, lado (anverso/reverso) y correlativo. Extrae campos como RUT, nombres, apellidos, fechas, etc. y guarda el resultado en DynamoDB.",
+        "operationId": "procesarCarnet",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "query",
+            "description": "ID de sesión del usuario (ej: sess_1782498768658_1bd49178-)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lado",
+            "in": "query",
+            "description": "Lado del carnet a procesar: anverso o reverso",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["anverso", "reverso"]
+            }
+          },
+          {
+            "name": "correlativo",
+            "in": "query",
+            "description": "Número correlativo de la imagen (por defecto 1)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Datos extraídos del carnet exitosamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "lado": {
+                      "type": "string"
+                    },
+                    "datos": {
+                      "type": "object",
+                      "properties": {
+                        "rut": { "type": "string" },
+                        "apellidos": { "type": "string" },
+                        "nombres": { "type": "string" },
+                        "nacionalidad": { "type": "string" },
+                        "sexo": { "type": "string" },
+                        "fecha_nacimiento": { "type": "string" },
+                        "fecha_emision": { "type": "string" },
+                        "fecha_vencimiento": { "type": "string" },
+                        "numero_documento": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Parámetros faltantes"
+          },
+          "404": {
+            "description": "Imagen no encontrada en S3"
+          }
+        }
+      }
+    }
+  }
+}
