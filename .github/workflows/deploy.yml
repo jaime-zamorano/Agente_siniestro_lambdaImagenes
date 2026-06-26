@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_REGION: us-east-2
-  LAMBDA_NAME: Lambda_ocr_imagenes
+  LAMBDA_NAME: lambda_siniestro_imagenes
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
