@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flask - Lambda OCR Local",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app.py",
+      "console": "integratedTerminal",
+      "env": {
+        "FLASK_DEBUG": "1",
+        "AWS_PROFILE": "default"
+      },
+      "jinja": false
+    }
+  ]
+}

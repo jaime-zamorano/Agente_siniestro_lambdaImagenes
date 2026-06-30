@@ -87,6 +87,28 @@ def guardar_en_dynamodb(session_id, datos_carnet, lado):
         print(f"Error guardando en DynamoDB: {e}")
 
 
+def guardar_error_en_dynamodb(session_id, error_msg):
+    """Registra un error de carga S3 en la conversacion de DynamoDB."""
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    try:
+        tabla_logs.update_item(
+            Key={"Idsession": session_id},
+            UpdateExpression="SET conversacion = list_append(conversacion, :nuevos)",
+            ExpressionAttributeValues={
+                ":nuevos": [
+                    {
+                        "rol": "agent",
+                        "texto": f"[ERROR OCR] {error_msg}",
+                        "timestamp": timestamp
+                    }
+                ]
+            }
+        )
+    except Exception as e:
+        print(f"Error guardando log de error en DynamoDB: {e}")
+
+
 def lambda_handler(event, context):
     # Extraer parámetros del Bedrock Agent
     action_group = event.get("actionGroup", "")
@@ -96,14 +118,13 @@ def lambda_handler(event, context):
 
     session_id = params.get("session_id", "")
     lado = params.get("lado", "anverso")
-    correlativo = params.get("correlativo", "1")
 
     if not session_id:
         result = {"error": "session_id es requerido"}
     else:
         # Construir ruta S3
-        prefix = "anverso-carnet" if lado == "anverso" else "reverso-carnet"
-        s3_key = f"carnets/{session_id}/{prefix}_{session_id}_{correlativo}.jpeg"
+        prefix = "anverso-licencia" if lado == "anverso" else "reverso-licencia"
+        s3_key = f"Licencia/conductor/{prefix}_{session_id}.jpeg"
 
         try:
             obj = s3.get_object(Bucket=BUCKET, Key=s3_key)
@@ -114,9 +135,13 @@ def lambda_handler(event, context):
 
             result = {"success": True, "lado": lado, "datos": datos_carnet}
         except s3.exceptions.NoSuchKey:
-            result = {"error": f"Imagen no encontrada en s3://{BUCKET}/{s3_key}"}
+            error_msg = f"Imagen no encontrada en s3://{BUCKET}/{s3_key}"
+            guardar_error_en_dynamodb(session_id, error_msg)
+            result = {"error": error_msg}
         except Exception as e:
-            result = {"error": str(e)}
+            error_msg = f"Error al obtener imagen de S3: {str(e)}"
+            guardar_error_en_dynamodb(session_id, error_msg)
+            result = {"error": error_msg}
 
     return {
         "messageVersion": "1.0",

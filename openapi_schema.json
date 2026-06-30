@@ -9,7 +9,7 @@
     "/procesar-carnet": {
       "post": {
         "summary": "Extrae datos de un carnet de identidad chileno desde una imagen en S3",
-        "description": "Lee la imagen del carnet desde S3 usando el session_id, lado (anverso/reverso) y correlativo. Extrae campos como RUT, nombres, apellidos, fechas, etc. y guarda el resultado en DynamoDB.",
+        "description": "Lee la imagen de la licencia desde S3 usando el session_id y lado (anverso/reverso). Extrae campos como RUT, nombres, apellidos, fechas, etc. y guarda el resultado en DynamoDB.",
         "operationId": "procesarCarnet",
         "parameters": [
           {
@@ -29,16 +29,6 @@
             "schema": {
               "type": "string",
               "enum": ["anverso", "reverso"]
-            }
-          },
-          {
-            "name": "correlativo",
-            "in": "query",
-            "description": "Número correlativo de la imagen (por defecto 1)",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "1"
             }
           }
         ],
