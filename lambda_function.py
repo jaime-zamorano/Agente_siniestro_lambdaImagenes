@@ -45,7 +45,7 @@ Responde SOLO con un JSON válido con los campos que puedas identificar."""
     })
 
     response = bedrock.invoke_model(
-        modelId="anthropic.claude-sonnet-4-20250514",
+        modelId="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         contentType="application/json",
         accept="application/json",
         body=body
