@@ -40,3 +40,9 @@ jobs:
       - name: Verificar despliegue
         run: |
           aws lambda get-function --function-name ${{ env.LAMBDA_NAME }} --query 'Configuration.[FunctionName,LastModified,State]' --output table
+
+      - name: Preparar Bedrock Flow
+        run: |
+          aws bedrock-agent prepare-flow \
+            --flow-identifier "5QRD7A9MAL" \
+            --region ${{ env.AWS_REGION }}

@@ -11,27 +11,8 @@ tabla_logs = dynamodb.Table("LogsAgenteSiniestros")
 BUCKET = "tattersall-siniestro-documentos"
 
 
-def extraer_datos_carnet(image_bytes, lado):
-    """Invoca Claude Vision para extraer datos del carnet."""
-    if lado == "anverso":
-        prompt = """Extrae los siguientes campos de este carnet de identidad chileno (anverso).
-Responde SOLO con un JSON válido con estas claves exactas:
-{
-  "rut": "",
-  "apellidos": "",
-  "nombres": "",
-  "nacionalidad": "",
-  "sexo": "",
-  "fecha_nacimiento": "",
-  "fecha_emision": "",
-  "fecha_vencimiento": "",
-  "numero_documento": ""
-}
-Si no puedes leer un campo, déjalo como cadena vacía."""
-    else:
-        prompt = """Extrae los datos visibles de este reverso de carnet de identidad chileno.
-Responde SOLO con un JSON válido con los campos que puedas identificar."""
-
+def invocar_claude_vision(image_bytes, prompt):
+    """Invoca Claude Vision con una imagen y un prompt."""
     body = json.dumps({
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 1024,
@@ -52,9 +33,49 @@ Responde SOLO con un JSON válido con los campos que puedas identificar."""
     )
 
     result = json.loads(response["body"].read())
-    text = result["content"][0]["text"]
+    return result["content"][0]["text"]
 
-    # Extraer JSON de la respuesta
+
+def verificar_licencia_conducir(image_bytes):
+    """Verifica si la imagen corresponde a una licencia de conducir."""
+    prompt = """Analiza esta imagen y determina si es una LICENCIA DE CONDUCIR.
+Las licencias de conducir chilenas contienen el texto "LICENCIA DE CONDUCIR" visible en el documento.
+Responde SOLO con un JSON válido:
+{"es_licencia_conducir": true/false, "motivo": "explicación breve"}"""
+
+    text = invocar_claude_vision(image_bytes, prompt)
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start >= 0 and end > start:
+        return json.loads(text[start:end])
+    return {"es_licencia_conducir": False, "motivo": "No se pudo analizar la imagen"}
+
+
+def extraer_datos_licencia(image_bytes, lado):
+    """Extrae datos de la licencia de conducir, verificando primero que lo sea."""
+    verificacion = verificar_licencia_conducir(image_bytes)
+    if not verificacion.get("es_licencia_conducir", False):
+        return {"error": "documento_no_valido", "motivo": verificacion.get("motivo", "El documento enviado no es una licencia de conducir.")}
+
+    if lado == "anverso":
+        prompt = """Extrae los siguientes campos de esta licencia de conducir chilena (anverso).
+Responde SOLO con un JSON válido con estas claves exactas:
+{
+  "rut": "",
+  "apellidos": "",
+  "nombres": "",
+  "clase_licencia": "",
+  "fecha_nacimiento": "",
+  "fecha_emision": "",
+  "fecha_vencimiento": "",
+  "municipalidad": ""
+}
+Si no puedes leer un campo, déjalo como cadena vacía."""
+    else:
+        prompt = """Extrae los datos visibles de este reverso de licencia de conducir chilena.
+Responde SOLO con un JSON válido con los campos que puedas identificar."""
+
+    text = invocar_claude_vision(image_bytes, prompt)
     start = text.find("{")
     end = text.rfind("}") + 1
     if start >= 0 and end > start:
@@ -130,10 +151,12 @@ def lambda_handler(event, context):
             obj = s3.get_object(Bucket=BUCKET, Key=s3_key)
             image_bytes = obj["Body"].read()
 
-            datos_carnet = extraer_datos_carnet(image_bytes, lado)
-            guardar_en_dynamodb(session_id, datos_carnet, lado)
-
-            result = {"success": True, "lado": lado, "datos": datos_carnet}
+            datos = extraer_datos_licencia(image_bytes, lado)
+            if datos.get("error") == "documento_no_valido":
+                result = {"success": False, "error": "documento_no_valido", "mensaje": datos["motivo"]}
+            else:
+                guardar_en_dynamodb(session_id, datos, lado)
+                result = {"success": True, "lado": lado, "datos": datos}
         except s3.exceptions.NoSuchKey:
             error_msg = f"Imagen no encontrada en s3://{BUCKET}/{s3_key}"
             guardar_error_en_dynamodb(session_id, error_msg)
