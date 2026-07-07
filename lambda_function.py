@@ -156,7 +156,7 @@ def procesar_cedula(session_id, lado):
         obj = s3.get_object(Bucket=BUCKET, Key=s3_key)
         image_bytes = obj["Body"].read()
 
-        verificacion = verificar_documento(image_bytes, "CÉDULA DE IDENTIDAD")
+        verificacion = verificar_documento(image_bytes, "CÉDULA DE IDENTIDAD chilena que contiene los textos 'CÉDULA DE IDENTIDAD' y 'REPÚBLICA DE CHILE' visibles en el documento")
         if not verificacion.get("es_documento_valido", False):
             return {"success": False, "error": "documento_no_valido", "mensaje": verificacion.get("motivo")}
 
