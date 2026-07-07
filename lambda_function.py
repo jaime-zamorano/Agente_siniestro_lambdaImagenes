@@ -179,11 +179,23 @@ Responde SOLO con un JSON válido con estas claves exactas:
   "Fecha_vencimiento": "",
   "Run": ""
 }
-IMPORTANTE: Busca la fecha de vencimiento que aparece en el documento. Si no puedes leer un campo, déjalo como cadena vacía. NO incluyas campos de licencia de conducir como clase_licencia o municipalidad."""
+IMPORTANTE:
+- El campo "Numero_Documento" es el número de serie del documento (ej: 529.051.682), NO es el RUN.
+- El campo "Run" es el RUT/RUN de la persona (ej: 21.060.264-K).
+- NO confundas estos dos campos.
+- Busca la fecha de vencimiento que aparece en el documento.
+- Si no puedes leer un campo, déjalo como cadena vacía.
+- NO incluyas campos de licencia de conducir como clase_licencia o municipalidad."""
         else:
             prompt = """Esta imagen es el REVERSO de una cédula de identidad chilena.
-Extrae los datos visibles del reverso.
-Responde SOLO con un JSON válido con los campos que puedas identificar."""
+Extrae UNICAMENTE estos 2 campos del reverso:
+{
+  "Nacio_en": "",
+  "Profesion": ""
+}
+Solo extrae "Nacio_en" (lugar de nacimiento) y "Profesion". Ignora todo lo demás (códigos MRZ, números de serie, etc).
+Si no puedes leer un campo, déjalo como cadena vacía.
+Responde SOLO con el JSON."""
 
         text = invocar_claude_vision(image_bytes, prompt)
         datos = parsear_json(text) or {}
