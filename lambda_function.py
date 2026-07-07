@@ -121,7 +121,7 @@ Responde SOLO con un JSON válido con estas claves exactas:
   "apellidos": "",
   "nombres": "",
   "clase_licencia": "",
-  "fecha_emision": "",
+  "fecha_ultimo_control": "",
   "fecha_vencimiento": "",
   "municipalidad": ""
 }
