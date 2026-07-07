@@ -109,9 +109,11 @@ def procesar_licencia(session_id, lado):
         obj = s3.get_object(Bucket=BUCKET, Key=s3_key)
         image_bytes = obj["Body"].read()
 
-        verificacion = verificar_documento(image_bytes, "LICENCIA DE CONDUCIR")
-        if not verificacion.get("es_documento_valido", False):
-            return {"success": False, "error": "documento_no_valido", "mensaje": verificacion.get("motivo")}
+        # Solo validar tipo de documento en el anverso
+        if lado == "anverso":
+            verificacion = verificar_documento(image_bytes, "LICENCIA DE CONDUCIR")
+            if not verificacion.get("es_documento_valido", False):
+                return {"success": False, "error": "documento_no_valido", "mensaje": verificacion.get("motivo")}
 
         if lado == "anverso":
             prompt = """Extrae los siguientes campos de esta licencia de conducir chilena (anverso).
@@ -149,19 +151,22 @@ Responde SOLO con un JSON válido con los campos que puedas identificar."""
 
 def procesar_cedula(session_id, lado):
     """Servicio para procesar cédula de identidad."""
-    prefix = "anverso-carnet" if lado == "anverso" else "reverso-carnet"
-    s3_key = f"carnets/conductor/{prefix}-{session_id}.jpeg"
+    prefix = "anverso-cedula" if lado == "anverso" else "reverso-cedula"
+    s3_key = f"Cedula/conductor/{prefix}_{session_id}.jpeg"
 
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=s3_key)
         image_bytes = obj["Body"].read()
 
-        verificacion = verificar_documento(image_bytes, "CÉDULA DE IDENTIDAD chilena que contiene los textos 'CÉDULA DE IDENTIDAD' y 'REPÚBLICA DE CHILE' visibles en el documento")
-        if not verificacion.get("es_documento_valido", False):
-            return {"success": False, "error": "documento_no_valido", "mensaje": verificacion.get("motivo")}
+        # Solo validar tipo de documento en el anverso
+        if lado == "anverso":
+            verificacion = verificar_documento(image_bytes, "CÉDULA DE IDENTIDAD chilena que contiene los textos 'CÉDULA DE IDENTIDAD' y 'REPÚBLICA DE CHILE' visibles en el documento")
+            if not verificacion.get("es_documento_valido", False):
+                return {"success": False, "error": "documento_no_valido", "mensaje": verificacion.get("motivo")}
 
         if lado == "anverso":
-            prompt = """Extrae los siguientes campos de esta cédula de identidad chilena (anverso).
+            prompt = """Esta imagen es el ANVERSO de una cédula de identidad chilena. NO es una licencia de conducir.
+Extrae UNICAMENTE los siguientes campos que aparecen en una cédula de identidad chilena.
 Responde SOLO con un JSON válido con estas claves exactas:
 {
   "Apellidos": "",
@@ -172,13 +177,12 @@ Responde SOLO con un JSON válido con estas claves exactas:
   "Numero_Documento": "",
   "Fecha_Emision": "",
   "Fecha_vencimiento": "",
-  "Run": "",
-  "Nacio_en": "",
-  "Profesion": ""
+  "Run": ""
 }
-Si no puedes leer un campo, déjalo como cadena vacía."""
+IMPORTANTE: Busca la fecha de vencimiento que aparece en el documento. Si no puedes leer un campo, déjalo como cadena vacía. NO incluyas campos de licencia de conducir como clase_licencia o municipalidad."""
         else:
-            prompt = """Extrae los datos visibles de este reverso de cédula de identidad chilena.
+            prompt = """Esta imagen es el REVERSO de una cédula de identidad chilena.
+Extrae los datos visibles del reverso.
 Responde SOLO con un JSON válido con los campos que puedas identificar."""
 
         text = invocar_claude_vision(image_bytes, prompt)
@@ -209,7 +213,7 @@ def lambda_handler(event, context):
 
     if not session_id:
         result = {"error": "session_id es requerido"}
-    elif function_name == "procesar_cedula_identidad":
+    elif function_name in ("procesarCedulaIdentidad", "procesar_cedula_identidad"):
         result = procesar_cedula(session_id, lado)
     else:
         result = procesar_licencia(session_id, lado)
