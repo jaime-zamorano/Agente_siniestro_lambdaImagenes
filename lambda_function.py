@@ -36,60 +36,32 @@ def invocar_claude_vision(image_bytes, prompt):
     return result["content"][0]["text"]
 
 
-def verificar_licencia_conducir(image_bytes):
-    """Verifica si la imagen corresponde a una licencia de conducir."""
-    prompt = """Analiza esta imagen y determina si es una LICENCIA DE CONDUCIR.
-Las licencias de conducir chilenas contienen el texto "LICENCIA DE CONDUCIR" visible en el documento.
+def parsear_json(text):
+    """Extrae el primer JSON válido de un texto."""
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start >= 0 and end > start:
+        return json.loads(text[start:end])
+    return None
+
+
+def verificar_documento(image_bytes, nombre_documento):
+    """Verifica si la imagen corresponde al tipo de documento esperado."""
+    prompt = f"""Analiza esta imagen y determina si es una {nombre_documento}.
 Responde SOLO con un JSON válido:
-{"es_licencia_conducir": true/false, "motivo": "explicación breve"}"""
+{{"es_documento_valido": true/false, "motivo": "explicación breve"}}"""
 
     text = invocar_claude_vision(image_bytes, prompt)
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start >= 0 and end > start:
-        return json.loads(text[start:end])
-    return {"es_licencia_conducir": False, "motivo": "No se pudo analizar la imagen"}
+    return parsear_json(text) or {"es_documento_valido": False, "motivo": "No se pudo analizar la imagen"}
 
 
-def extraer_datos_licencia(image_bytes, lado):
-    """Extrae datos de la licencia de conducir, verificando primero que lo sea."""
-    verificacion = verificar_licencia_conducir(image_bytes)
-    if not verificacion.get("es_licencia_conducir", False):
-        return {"error": "documento_no_valido", "motivo": verificacion.get("motivo", "El documento enviado no es una licencia de conducir.")}
-
-    if lado == "anverso":
-        prompt = """Extrae los siguientes campos de esta licencia de conducir chilena (anverso).
-Responde SOLO con un JSON válido con estas claves exactas:
-{
-  "rut": "",
-  "apellidos": "",
-  "nombres": "",
-  "clase_licencia": "",
-  "fecha_nacimiento": "",
-  "fecha_emision": "",
-  "fecha_vencimiento": "",
-  "municipalidad": ""
-}
-Si no puedes leer un campo, déjalo como cadena vacía."""
-    else:
-        prompt = """Extrae los datos visibles de este reverso de licencia de conducir chilena.
-Responde SOLO con un JSON válido con los campos que puedas identificar."""
-
-    text = invocar_claude_vision(image_bytes, prompt)
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start >= 0 and end > start:
-        return json.loads(text[start:end])
-    return {}
-
-
-def guardar_en_dynamodb(session_id, datos_carnet, lado):
+def guardar_en_dynamodb(session_id, datos, lado):
     """Agrega la interacción OCR a la conversación existente en DynamoDB."""
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-    texto_usuario = f"[Imagen carnet {lado} enviada]"
-    texto_agente = f"He extraído los datos del {lado} del carnet:\n"
-    for k, v in datos_carnet.items():
+    texto_usuario = f"[Imagen {lado} enviada]"
+    texto_agente = f"He extraído los datos del {lado}:\n"
+    for k, v in datos.items():
         if v:
             texto_agente += f"- {k.replace('_', ' ').title()}: {v}\n"
 
@@ -109,7 +81,7 @@ def guardar_en_dynamodb(session_id, datos_carnet, lado):
 
 
 def guardar_error_en_dynamodb(session_id, error_msg):
-    """Registra un error de carga S3 en la conversacion de DynamoDB."""
+    """Registra un error en la conversacion de DynamoDB."""
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     try:
@@ -118,11 +90,7 @@ def guardar_error_en_dynamodb(session_id, error_msg):
             UpdateExpression="SET conversacion = list_append(conversacion, :nuevos)",
             ExpressionAttributeValues={
                 ":nuevos": [
-                    {
-                        "rol": "agent",
-                        "texto": f"[ERROR OCR] {error_msg}",
-                        "timestamp": timestamp
-                    }
+                    {"rol": "agent", "texto": f"[ERROR OCR] {error_msg}", "timestamp": timestamp}
                 ]
             }
         )
@@ -130,8 +98,107 @@ def guardar_error_en_dynamodb(session_id, error_msg):
         print(f"Error guardando log de error en DynamoDB: {e}")
 
 
+# ==================== SERVICIO LICENCIA DE CONDUCIR ====================
+
+def procesar_licencia(session_id, lado):
+    """Servicio para procesar licencia de conducir."""
+    prefix = "anverso-licencia" if lado == "anverso" else "reverso-licencia"
+    s3_key = f"Licencia/conductor/{prefix}_{session_id}.jpeg"
+
+    try:
+        obj = s3.get_object(Bucket=BUCKET, Key=s3_key)
+        image_bytes = obj["Body"].read()
+
+        verificacion = verificar_documento(image_bytes, "LICENCIA DE CONDUCIR")
+        if not verificacion.get("es_documento_valido", False):
+            return {"success": False, "error": "documento_no_valido", "mensaje": verificacion.get("motivo")}
+
+        if lado == "anverso":
+            prompt = """Extrae los siguientes campos de esta licencia de conducir chilena (anverso).
+Responde SOLO con un JSON válido con estas claves exactas:
+{
+  "rut": "",
+  "apellidos": "",
+  "nombres": "",
+  "clase_licencia": "",
+  "fecha_emision": "",
+  "fecha_vencimiento": "",
+  "municipalidad": ""
+}
+Si no puedes leer un campo, déjalo como cadena vacía."""
+        else:
+            prompt = """Extrae los datos visibles de este reverso de licencia de conducir chilena.
+Responde SOLO con un JSON válido con los campos que puedas identificar."""
+
+        text = invocar_claude_vision(image_bytes, prompt)
+        datos = parsear_json(text) or {}
+        guardar_en_dynamodb(session_id, datos, lado)
+        return {"success": True, "lado": lado, "datos": datos}
+
+    except s3.exceptions.NoSuchKey:
+        error_msg = f"Imagen no encontrada en s3://{BUCKET}/{s3_key}"
+        guardar_error_en_dynamodb(session_id, error_msg)
+        return {"error": error_msg}
+    except Exception as e:
+        error_msg = f"Error al obtener imagen de S3: {str(e)}"
+        guardar_error_en_dynamodb(session_id, error_msg)
+        return {"error": error_msg}
+
+
+# ==================== SERVICIO CÉDULA DE IDENTIDAD ====================
+
+def procesar_cedula(session_id, lado):
+    """Servicio para procesar cédula de identidad."""
+    prefix = "anverso-carnet" if lado == "anverso" else "reverso-carnet"
+    s3_key = f"carnets/conductor/{prefix}-{session_id}.jpeg"
+
+    try:
+        obj = s3.get_object(Bucket=BUCKET, Key=s3_key)
+        image_bytes = obj["Body"].read()
+
+        verificacion = verificar_documento(image_bytes, "CÉDULA DE IDENTIDAD")
+        if not verificacion.get("es_documento_valido", False):
+            return {"success": False, "error": "documento_no_valido", "mensaje": verificacion.get("motivo")}
+
+        if lado == "anverso":
+            prompt = """Extrae los siguientes campos de esta cédula de identidad chilena (anverso).
+Responde SOLO con un JSON válido con estas claves exactas:
+{
+  "Apellidos": "",
+  "Nombres": "",
+  "Nacionalidad": "",
+  "Sexo": "",
+  "Fecha_Nacimiento": "",
+  "Numero_Documento": "",
+  "Fecha_Emision": "",
+  "Fecha_vencimiento": "",
+  "Run": "",
+  "Nacio_en": "",
+  "Profesion": ""
+}
+Si no puedes leer un campo, déjalo como cadena vacía."""
+        else:
+            prompt = """Extrae los datos visibles de este reverso de cédula de identidad chilena.
+Responde SOLO con un JSON válido con los campos que puedas identificar."""
+
+        text = invocar_claude_vision(image_bytes, prompt)
+        datos = parsear_json(text) or {}
+        guardar_en_dynamodb(session_id, datos, lado)
+        return {"success": True, "lado": lado, "datos": datos}
+
+    except s3.exceptions.NoSuchKey:
+        error_msg = f"Imagen no encontrada en s3://{BUCKET}/{s3_key}"
+        guardar_error_en_dynamodb(session_id, error_msg)
+        return {"error": error_msg}
+    except Exception as e:
+        error_msg = f"Error al obtener imagen de S3: {str(e)}"
+        guardar_error_en_dynamodb(session_id, error_msg)
+        return {"error": error_msg}
+
+
+# ==================== HANDLER ====================
+
 def lambda_handler(event, context):
-    # Extraer parámetros del Bedrock Agent
     action_group = event.get("actionGroup", "")
     function_name = event.get("function", "")
     parameters = event.get("parameters", [])
@@ -142,29 +209,10 @@ def lambda_handler(event, context):
 
     if not session_id:
         result = {"error": "session_id es requerido"}
+    elif function_name == "procesar_cedula_identidad":
+        result = procesar_cedula(session_id, lado)
     else:
-        # Construir ruta S3
-        prefix = "anverso-licencia" if lado == "anverso" else "reverso-licencia"
-        s3_key = f"Licencia/conductor/{prefix}_{session_id}.jpeg"
-
-        try:
-            obj = s3.get_object(Bucket=BUCKET, Key=s3_key)
-            image_bytes = obj["Body"].read()
-
-            datos = extraer_datos_licencia(image_bytes, lado)
-            if datos.get("error") == "documento_no_valido":
-                result = {"success": False, "error": "documento_no_valido", "mensaje": datos["motivo"]}
-            else:
-                guardar_en_dynamodb(session_id, datos, lado)
-                result = {"success": True, "lado": lado, "datos": datos}
-        except s3.exceptions.NoSuchKey:
-            error_msg = f"Imagen no encontrada en s3://{BUCKET}/{s3_key}"
-            guardar_error_en_dynamodb(session_id, error_msg)
-            result = {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Error al obtener imagen de S3: {str(e)}"
-            guardar_error_en_dynamodb(session_id, error_msg)
-            result = {"error": error_msg}
+        result = procesar_licencia(session_id, lado)
 
     return {
         "messageVersion": "1.0",
