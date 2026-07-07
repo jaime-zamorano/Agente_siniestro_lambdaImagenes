@@ -122,10 +122,12 @@ Responde SOLO con un JSON válido con estas claves exactas:
   "rut": "",
   "apellidos": "",
   "nombres": "",
-  "clase_licencia": "",
+  "clase": "",
   "fecha_ultimo_control": "",
   "fecha_vencimiento": "",
-  "municipalidad": ""
+  "municipalidad": "",
+  "DIRECCION": "",
+  "RESTRICCIONES / OBSERVACIONES": ""
 }
 Si no puedes leer un campo, déjalo como cadena vacía."""
         else:
